@@ -33,7 +33,7 @@ demo.
 
 | Source | Purpose |
 |---|---|
-| Sentinel-2 (10m resolution, via Google Earth Engine Python API) | Spectral reflectance imagery, primary model input |
+| Sentinel-2 (10m resolution, via public Earth Search STAC/COGs; optional Earth Engine adapter) | Spectral reflectance imagery, primary model input |
 | NOAA Coral Reef Watch | Degree Heating Weeks (DHW) as a weak-label proxy for thermal stress |
 | Allen Coral Atlas | Reef boundary geometry, used to generate the reef-cell grid |
 | AIMS Long-Term Monitoring Program survey records | High-confidence ground-truth labels (confirmed bleached/healthy) |
@@ -64,7 +64,7 @@ Runs as an offline batch job producing a versioned dataset, not a live
 service.
 
 ```
-[GEE: Sentinel-2] ──┐
+[STAC: Sentinel-2] ──┐
 [NOAA DHW API]    ──┼──> fetch & align by (reef-cell, date) ──> spectral index calc ──> label join ──> training_dataset.parquet
 [Allen Coral Atlas]──┤                                                                        ↑
 [AIMS survey records]┘                                                                  ground-truth join
@@ -83,8 +83,10 @@ entry, not new pipeline code.
 
 ### Row schema (`training_dataset.parquet`)
 
-Partitioned by `reef_cell_id` / `date` so new dates/reefs append without
-schema migration.
+Schema version 2: partition by `reef_cell_id` within immutable run directories.
+Stage and validate a complete run before publication. Record provenance and
+processing configuration in a manifest. See the revised implementation plan
+for exact typed fields and acceptance checks.
 
 | Field | Description |
 |---|---|
@@ -95,6 +97,8 @@ schema migration.
 | `cloud_cover_fraction` | Used for weighting/filtering, not automatic row-dropping |
 | `data_quality` | `ok` / `insufficient` (e.g. cloud cover too high to compute reliable indices) |
 | `confirmed_label` | `bleached` / `healthy` / `null` — set when an AIMS survey exists within ~2 weeks of the cell/date |
+| `survey_date`, `survey_id` | Matched original survey date and stable source record ID; nullable together with confirmed_label |
+| `source_scene_id`, `feature_start_date` | Acquisition identity and earliest contributing feature date for leakage checks |
 | `dhw_risk_flag` | `true`/`false` from DHW ≥ 4 threshold — separate weak-label column |
 
 ### Error handling
@@ -111,6 +115,7 @@ schema migration.
 
 ### Training labels — combined strategy
 
+- Only usable-imagery rows are eligible for training, including confirmed rows.
 - Rows with `confirmed_label` (from AIMS) are the high-confidence set —
   used for both training and held-out validation.
 - Rows with only `dhw_risk_flag` are weak-labeled — included in training
@@ -146,17 +151,26 @@ columns — additive, not a breaking change to the module 4 API contract.
 | `probability` | Model output probability of bleaching |
 | `predicted_label` | Thresholded bleached/healthy |
 | `top_contributing_features` | SHAP or GBT feature importances, for the "reasoning" shown to rangers |
-| `confidence_band` | Derived from probability distance from 0.5 (or ensemble variance) |
+| `confidence_band` | Descriptive distance-from-0.5 band, not calibrated uncertainty; unavailable on abstention |
+| `data_quality` | ok or insufficient; insufficient rows have null probability/label and empty contributions |
 
 This contract is region-agnostic — Modules 3/4 don't change as more reefs
 are added.
 
 ### Validation
 
-Leave-one-survey-date-out cross-validation, not random split. Random
-splitting would leak information (adjacent cells on the same date are
-highly spatially/temporally correlated) and overstate accuracy. Tracked
-as an ongoing metric, not a one-time pass/fail test.
+Leave-one-source-survey-date-out cross-validation uses retained AIMS dates
+and IDs, not imagery dates. Test only confirmed usable rows. Purge training
+rows sharing held-out surveys/scenes or overlapping feature intervals expanded
+by the 14-day matching window, including weak labels across the reef.
+Return an explicit result per fold, with null AUC and a reason for one-class
+or empty folds. An entirely skipped evaluation is not evaluable. Weight each
+survey record equally and compare with the DHW baseline on the same test rows.
+
+Missing imagery must never become zero-valued inputs or healthy predictions.
+Preserve all raw rows in predictions and abstain on insufficient quality.
+Valid history warmup may retain a null shift using native model missing-value
+support. Contribution output includes signed magnitudes and input values.
 
 ## Backend / Data Store (Module 4)
 
@@ -185,9 +199,13 @@ hand-written fake `predictions.parquet` before Module 1/2 are real.
 
 ## Phase 1 Setup Tasks
 
-- Sign up for Google Earth Engine access (no existing access; approval
-  can take time, so this should start early and in parallel with other
-  setup work).
+- Use public Earth Search Sentinel-2 L2A COGs for the 2020 pilot; no
+  Earth Engine login is required. Local processing handles raster windows.
+- Confirm source coverage and usable reef pixels before live training.
+  The initial public-catalog check found 2020 scenes but no 2016 scenes in
+  the queried L2A collection; 2016 is contingent on verified compatible data.
+- Earth Engine remains optional. See the revised plan for access alternatives
+  and the dated anonymous-access smoke check.
 
 ## Open Items for Later Phases
 

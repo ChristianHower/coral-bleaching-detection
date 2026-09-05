@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coral-bleaching-detection"
+version = "0.1.0"
+description = "Offline reef imagery pipeline and interpretable bleaching-risk model"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.2,<3", "pyarrow>=17,<24", "shapely>=2,<3", "pyproj>=3.6,<4", "numpy>=1.26,<2.3", "lightgbm>=4.3,<5", "scikit-learn>=1.4,<2", "requests>=2.31,<3", "pystac-client>=0.8,<1", "rasterio>=1.4,<2", "affine>=2.4,<3"]
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+[project.scripts]
+coral-bleaching = "coral_bleaching.cli:main"
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
