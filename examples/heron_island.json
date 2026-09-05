@@ -1,0 +1,8 @@
+{
+  "reef_id": "heron_island",
+  "boundary_geojson_path": "heron_island_boundary.geojson",
+  "start_date": "2020-01-01",
+  "end_date": "2020-04-30",
+  "cell_size_meters": 75.0,
+  "utm_epsg": "EPSG:32756"
+}
