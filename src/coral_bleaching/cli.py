@@ -95,8 +95,18 @@ def main(argv=None):
     inference.add_argument("--dataset", required=True)
     inference.add_argument("--model", required=True)
     inference.add_argument("--output", required=True)
+    ui = sub.add_parser("ui", help="Serve the local read-only prediction map")
+    ui.add_argument("--runs-root", default="runs")
+    ui.add_argument("--run", default="demo-001")
+    ui.add_argument("--host", default="127.0.0.1")
+    ui.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
     try:
+        if args.command == "ui":
+            from coral_bleaching.web import serve
+
+            serve(args.runs_root, args.run, args.host, args.port)
+            return
         if args.command == "demo":
             output = demo(args.output)
         elif args.command == "predict":
