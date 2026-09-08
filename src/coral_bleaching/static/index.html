@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reef cell risk map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17332f;
+      background: #dbe7e4;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: 100vh; }
+    .map-wrap { position: relative; min-height: 420px; background: #a9cfca; }
+    #map { width: 100%; height: 100%; }
+    .run-strip {
+      position: absolute; z-index: 800; top: 14px; left: 54px;
+      background: #f4f8f6; border-left: 4px solid #0a6f73; padding: 9px 13px;
+      box-shadow: 0 1px 4px rgb(17 51 47 / 22%);
+    }
+    .run-strip strong { display: block; font-size: .95rem; }
+    .run-strip span { display: block; margin-top: 2px; color: #526a65; font-size: .78rem; }
+    .legend {
+      position: absolute; z-index: 800; left: 14px; bottom: 20px; width: 180px;
+      background: #f4f8f6; border: 1px solid #a8bbb6; padding: 10px 11px;
+      font-size: .76rem; color: #36534e;
+    }
+    .legend-title { margin-bottom: 7px; font-weight: 700; color: #17332f; }
+    .risk-ramp { height: 9px; background: linear-gradient(90deg, #087f8c, #73bfb8 34%, #f2b84b 67%, #d95d39); }
+    .risk-labels { display: flex; justify-content: space-between; margin-top: 4px; }
+    .insufficient-key { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
+    .insufficient-swatch { width: 20px; height: 12px; background: #8a9590; border: 2px dashed #53605c; }
+    aside { overflow: auto; background: #f4f8f6; border-left: 1px solid #9fb2ad; }
+    header { padding: 22px 22px 18px; border-bottom: 1px solid #c3d0cd; }
+    h1 { margin: 0; font-size: 1.25rem; line-height: 1.2; letter-spacing: -.01em; }
+    header p { margin: 7px 0 0; font-size: .87rem; line-height: 1.45; color: #526a65; }
+    #details { padding: 20px 22px 28px; }
+    .empty { margin: 0; color: #61746f; line-height: 1.5; }
+    .cell-id { margin: 0 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; color: #526a65; word-break: break-all; }
+    .risk-readout { display: flex; align-items: baseline; gap: 9px; padding: 13px 0 17px; border-bottom: 1px solid #c3d0cd; }
+    .risk-readout strong { font-size: 2.15rem; line-height: 1; }
+    .risk-readout span { color: #526a65; text-transform: capitalize; }
+    dl { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 16px; margin: 18px 0; }
+    dt { color: #657873; font-size: .76rem; }
+    dd { margin: 3px 0 0; font-size: .9rem; text-transform: capitalize; }
+    h2 { margin: 22px 0 10px; font-size: .92rem; }
+    .contribution { padding: 10px 0; border-top: 1px solid #d0dad7; }
+    .contribution:first-of-type { border-top: 0; }
+    .contribution-line { display: flex; justify-content: space-between; gap: 12px; font-size: .84rem; }
+    .feature-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .positive { color: #b84a2c; }
+    .negative { color: #08747c; }
+    .feature-value { margin-top: 3px; color: #6b7e79; font-size: .75rem; }
+    .notice { border-left: 4px solid #66736f; padding: 11px 12px; background: #e2e7e5; line-height: 1.4; }
+    .error { color: #7a2f22; background: #f4dfd9; border-left-color: #b64b35; }
+    .leaflet-popup-content-wrapper { border-radius: 2px; }
+    .leaflet-popup-content { font-family: inherit; line-height: 1.4; }
+    @media (max-width: 760px) {
+      .workspace { grid-template-columns: 1fr; grid-template-rows: 58vh minmax(280px, auto); height: auto; min-height: 100vh; }
+      aside { border-left: 0; border-top: 1px solid #9fb2ad; }
+      .run-strip { left: 50px; right: 10px; }
+      .legend { bottom: 12px; left: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="workspace">
+    <section class="map-wrap" aria-label="Reef cell prediction map">
+      <div id="map" tabindex="0"></div>
+      <div class="run-strip"><strong>Heron Island pilot</strong><span id="run-name"></span></div>
+      <div class="legend" aria-label="Bleaching probability legend">
+        <div class="legend-title">Bleaching probability</div>
+        <div class="risk-ramp"></div>
+        <div class="risk-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+        <div class="insufficient-key"><span class="insufficient-swatch"></span><span>Insufficient imagery</span></div>
+      </div>
+    </section>
+    <aside aria-live="polite">
+      <header>
+        <h1>Reef cell inspection</h1>
+        <p>Latest observation per cell. Synthetic runs show software behavior, not field performance.</p>
+      </header>
+      <section id="details"><p class="empty">Select a cell to inspect its prediction and model contributions.</p></section>
+    </aside>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const defaultRun = "__DEFAULT_RUN__";
+    const runName = new URLSearchParams(window.location.search).get("run") || defaultRun;
+    const details = document.getElementById("details");
+    document.getElementById("run-name").textContent = `Run: ${runName}`;
+
+    const map = L.map("map", { zoomControl: true });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 20,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    function escapeText(value) {
+      return String(value ?? "").replace(/[&<>'"]/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+      })[character]);
+    }
+
+    function probabilityColor(probability) {
+      if (probability < 0.25) return "#087f8c";
+      if (probability < 0.5) return "#73bfb8";
+      if (probability < 0.75) return "#f2b84b";
+      return "#d95d39";
+    }
+
+    function cellStyle(feature) {
+      const unavailable = feature.properties.data_quality === "insufficient";
+      return {
+        color: unavailable ? "#53605c" : "#f4f8f6",
+        weight: unavailable ? 2 : 1,
+        dashArray: unavailable ? "5 4" : null,
+        fillColor: unavailable ? "#8a9590" : probabilityColor(feature.properties.probability),
+        fillOpacity: unavailable ? 0.72 : 0.78
+      };
+    }
+
+    function formatValue(value, digits = 3) {
+      return value === null || value === undefined ? "Unavailable" : Number(value).toFixed(digits);
+    }
+
+    function showDetails(properties) {
+      const unavailable = properties.data_quality === "insufficient";
+      if (unavailable) {
+        details.innerHTML = `
+          <p class="cell-id">${escapeText(properties.reef_cell_id)}</p>
+          <div class="notice">No prediction is available for this observation. Imagery did not meet the data-quality threshold.</div>
+          <dl><div><dt>Observation</dt><dd>${escapeText(properties.date || "Unavailable")}</dd></div><div><dt>Data quality</dt><dd>Insufficient</dd></div></dl>`;
+        return;
+      }
+      const contributions = (properties.top_contributing_features || []).map(item => {
+        const signClass = item.contribution >= 0 ? "positive" : "negative";
+        const sign = item.contribution >= 0 ? "+" : "";
+        return `<div class="contribution">
+          <div class="contribution-line"><span class="feature-name">${escapeText(item.feature)}</span><strong class="${signClass}">${sign}${formatValue(item.contribution)}</strong></div>
+          <div class="feature-value">Observed value: ${formatValue(item.value)}</div>
+        </div>`;
+      }).join("");
+      details.innerHTML = `
+        <p class="cell-id">${escapeText(properties.reef_cell_id)}</p>
+        <div class="risk-readout"><strong>${Math.round(properties.probability * 100)}%</strong><span>${escapeText(properties.predicted_label)}</span></div>
+        <dl>
+          <div><dt>Observation</dt><dd>${escapeText(properties.date)}</dd></div>
+          <div><dt>Confidence band</dt><dd>${escapeText(properties.confidence_band)}</dd></div>
+          <div><dt>Data quality</dt><dd>${escapeText(properties.data_quality)}</dd></div>
+        </dl>
+        <h2>Top model contributions</h2>
+        ${contributions || '<p class="empty">No contributions recorded.</p>'}`;
+    }
+
+    fetch(`/api/runs/${encodeURIComponent(runName)}`)
+      .then(async response => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail || `Run request failed (${response.status})`);
+        }
+        return response.json();
+      })
+      .then(collection => {
+        const layer = L.geoJSON(collection, {
+          style: cellStyle,
+          onEachFeature: (feature, cellLayer) => {
+            const properties = feature.properties;
+            const popup = properties.data_quality === "insufficient"
+              ? `<strong>${escapeText(properties.reef_cell_id)}</strong><br>No prediction — insufficient imagery`
+              : `<strong>${escapeText(properties.reef_cell_id)}</strong><br>${Math.round(properties.probability * 100)}% bleaching probability`;
+            cellLayer.bindPopup(popup);
+            cellLayer.on("click", () => showDetails(properties));
+          }
+        }).addTo(map);
+        if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { padding: [24, 24] });
+        else throw new Error("This run contains no reef-cell geometry");
+      })
+      .catch(error => {
+        details.innerHTML = `<div class="notice error">${escapeText(error.message)}</div>`;
+        map.setView([-23.4423, 151.9148], 13);
+      });
+  </script>
+</body>
+</html>

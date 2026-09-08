@@ -7,13 +7,15 @@ name = "coral-bleaching-detection"
 version = "0.1.0"
 description = "Offline reef imagery pipeline and interpretable bleaching-risk model"
 requires-python = ">=3.11"
-dependencies = ["pandas>=2.2,<3", "pyarrow>=17,<24", "shapely>=2,<3", "pyproj>=3.6,<4", "numpy>=1.26,<2.3", "lightgbm>=4.3,<5", "scikit-learn>=1.4,<2", "requests>=2.31,<3", "pystac-client>=0.8,<1", "rasterio>=1.4,<2", "affine>=2.4,<3"]
+dependencies = ["pandas>=2.2,<3", "pyarrow>=17,<24", "shapely>=2,<3", "pyproj>=3.6,<4", "numpy>=1.26,<2.3", "lightgbm>=4.3,<5", "scikit-learn>=1.4,<2", "requests>=2.31,<3", "pystac-client>=0.8,<1", "rasterio>=1.4,<2", "affine>=2.4,<3", "fastapi>=0.116,<1", "uvicorn>=0.35,<1"]
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 [project.scripts]
 coral-bleaching = "coral_bleaching.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
+[tool.setuptools.package-data]
+coral_bleaching = ["static/*.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 [tool.ruff]

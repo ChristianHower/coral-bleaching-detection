@@ -1,9 +1,10 @@
-# Coral bleaching detection — Build 1
+# Coral bleaching detection — Build 1 + map POC
 
-An offline Python pipeline and LightGBM model for a Heron Island pilot.
+An offline Python pipeline, LightGBM model, and local read-only map for a Heron Island pilot.
 It reads public Sentinel-2 L2A imagery, joins NOAA heat stress and normalized
 field survey labels, and writes versioned Parquet predictions with signed
-feature contributions. No web interface or server is included in this build.
+feature contributions. The proof-of-concept map reads a completed local run;
+it does not add a database or write path.
 
 The software is tested with synthetic data and small raster fixtures. The
 synthetic model is a demonstration, not a validated bleaching detector.
@@ -56,6 +57,23 @@ Each published run contains:
 - `grid.geojson`: the clipped cells and their stable identifiers.
 - `manifest.json`: configuration, source provenance, diagnostics, library
   versions, and SHA-256 checksums of the other files.
+
+## Local prediction map
+
+Generate the synthetic demonstration above, then serve the runs directory:
+
+```sh
+coral-bleaching ui --runs-root runs --run demo-001
+```
+
+Open `http://127.0.0.1:8000`. The map uses the latest observation for each
+reef cell. Click a cell to inspect its bleaching probability, label, confidence
+band, data quality, and signed model contributions. Grey dashed cells are
+observations where the model abstained because imagery was insufficient.
+
+Leaflet and OpenStreetMap tiles load from public CDNs, so the map background
+requires network access. The run data stays on the local machine. The included
+`demo-001` values are synthetic and do not represent field performance.
 
 A run is staged, reloaded, checked, and atomically renamed into place only
 when complete. A one-class usable training set fails with an explicit error;
