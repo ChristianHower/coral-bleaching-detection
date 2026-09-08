@@ -7,8 +7,11 @@ name = "coral-bleaching-detection"
 version = "0.1.0"
 description = "Offline reef imagery pipeline and interpretable bleaching-risk model"
 requires-python = ">=3.11"
-dependencies = ["pandas>=2.2,<3", "pyarrow>=17,<24", "shapely>=2,<3", "pyproj>=3.6,<4", "numpy>=1.26,<2.3", "lightgbm>=4.3,<5", "scikit-learn>=1.4,<2", "requests>=2.31,<3", "pystac-client>=0.8,<1", "rasterio>=1.4,<2", "affine>=2.4,<3", "fastapi>=0.116,<1", "uvicorn>=0.35,<1"]
+dependencies = ["pandas>=2.2,<3", "pyarrow>=17,<24", "shapely>=2,<3", "pyproj>=3.6,<4", "numpy>=1.26,<2.3", "lightgbm>=4.3,<5", "scikit-learn>=1.4,<2", "requests>=2.31,<3", "pystac-client>=0.8,<1", "rasterio>=1.4,<2", "affine>=2.4,<3"]
 [project.optional-dependencies]
+# The map UI (coral_bleaching.web) is a separate, optional consumer of the
+# pipeline/model output files. Installing the pipeline never requires it.
+ui = ["fastapi>=0.116,<1", "uvicorn>=0.35,<1"]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
 [project.scripts]
 coral-bleaching = "coral_bleaching.cli:main"

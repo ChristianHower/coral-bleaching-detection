@@ -31,6 +31,14 @@ On Linux the helper does nothing. If the bundled library is unavailable,
 install your platform's OpenMP runtime. Do not copy the supplied environment
 between machines; recreate it with the commands above.
 
+The map UI (`coral_bleaching.web`, the `ui` CLI command) is an optional
+consumer of the pipeline's output files, not a dependency of the pipeline
+itself. `pip install -e '.'` alone installs the pipeline and model with no
+FastAPI/uvicorn; add the `ui` extra (`pip install -e '.[ui]'`, or `'.[dev,ui]'`
+for both) only if you want to run the map. The commands above use the lock
+file, which already includes everything, so this only matters for a minimal
+install outside the lock file.
+
 NumPy is constrained below 2.3 and affine below 3 to avoid compatibility
 warnings with the tested pandas/rasterio stack. All automated tests prohibit
 Python socket access; raster tests read local GeoTIFFs through injected clients.
