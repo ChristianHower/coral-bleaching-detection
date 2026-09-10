@@ -8,8 +8,9 @@ it does not add a database or write path.
 
 The software is tested with synthetic data and small raster fixtures. The
 synthetic model is a demonstration, not a validated bleaching detector.
-Live source access has been exercised separately; real field evaluation still
-requires an authoritative reef boundary and suitable independent surveys.
+Live source access has been exercised separately. The Heron Island Reef
+boundary is bundled (from Allen Coral Atlas); real field evaluation still
+requires suitable independent bleaching surveys.
 
 ## Install
 
@@ -96,12 +97,18 @@ and selects the best usable-pixel fraction per cell/acquisition day. Raster
 blocks are cached by GDAL during processing; searches are cached in memory.
 This is a bounded pilot implementation, not a distributed imagery processor.
 
-1. Obtain an authoritative WGS84 Polygon/MultiPolygon reef boundary. The
-   demonstration rectangle is synthetic and is not an Allen Coral Atlas export.
+1. The reef boundary is `data/heron_island_reef_boundary.geojson`, Heron Island
+   Reef only (~26 km²), derived from an Allen Coral Atlas reef-extent export by
+   `scripts/build_pilot_boundary.py`. See `data/sources/README.md` for the
+   source, license (CC BY 4.0), and derivation. `examples/heron_island.json`
+   already points at it. At the default 75 m cell size this is ~4,800 cells; a
+   full 2020 interval touches every cell on every clear acquisition, so expect
+   the first run to take a while. Raise `cell_size_meters` for a faster first
+   pass.
 2. Obtain survey observations that actually classify bleaching/healthy state.
    Percent coral cover alone is not a bleaching label. Normalize as below.
-3. Copy `examples/heron_island.json`, point its boundary path to the real file,
-   and set an acquisition interval supported by the public L2A catalog.
+3. Adjust the acquisition interval in the config if needed; it must be covered
+   by the public L2A catalog (2020 works; 2016 does not — see below).
 4. Run:
 
 ```sh
