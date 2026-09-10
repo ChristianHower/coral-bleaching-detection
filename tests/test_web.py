@@ -22,7 +22,9 @@ def write_run(root):
                 "properties": {"reef_cell_id": cell},
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [[[151.9, -23.4], [151.91, -23.4], [151.91, -23.41], [151.9, -23.4]]],
+                    "coordinates": [
+                        [[151.9, -23.4], [151.91, -23.4], [151.91, -23.41], [151.9, -23.4]]
+                    ],
                 },
             }
             for cell in ("a", "b", "c")
@@ -44,9 +46,7 @@ def write_run(root):
             "date": date(2020, 2, 1),
             "probability": 0.8,
             "predicted_label": "bleached",
-            "top_contributing_features": [
-                {"feature": "dhw", "value": 5.0, "contribution": 0.7}
-            ],
+            "top_contributing_features": [{"feature": "dhw", "value": 5.0, "contribution": 0.7}],
             "confidence_band": "high",
             "data_quality": "ok",
         },
@@ -60,13 +60,18 @@ def write_run(root):
             "data_quality": "insufficient",
         },
     ]
-    pq.write_table(pa.Table.from_pandas(pd.DataFrame(rows), schema=PREDICTION_SCHEMA), run / "predictions.parquet")
+    pq.write_table(
+        pa.Table.from_pandas(pd.DataFrame(rows), schema=PREDICTION_SCHEMA),
+        run / "predictions.parquet",
+    )
 
 
 def test_load_run_uses_latest_prediction_and_marks_missing_cell(tmp_path):
     write_run(tmp_path)
     result = load_run_geojson(tmp_path, "demo-001")
-    properties = {item["properties"]["reef_cell_id"]: item["properties"] for item in result["features"]}
+    properties = {
+        item["properties"]["reef_cell_id"]: item["properties"] for item in result["features"]
+    }
     assert properties["a"]["date"] == "2020-02-01"
     assert properties["a"]["probability"] == 0.8
     assert properties["a"]["top_contributing_features"][0]["feature"] == "dhw"
