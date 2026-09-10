@@ -8,9 +8,10 @@ it does not add a database or write path.
 
 The software is tested with synthetic data and small raster fixtures. The
 synthetic model is a demonstration, not a validated bleaching detector.
-Live source access has been exercised separately. The Heron Island Reef
-boundary is bundled (from Allen Coral Atlas); real field evaluation still
-requires suitable independent bleaching surveys.
+Live source access has been exercised separately. An approximate Heron Reef
+pilot extent is bundled from Allen Coral Atlas source data; real field
+evaluation still requires independent bleaching surveys and review of the
+analysis boundary.
 
 ## Install
 
@@ -35,10 +36,11 @@ between machines; recreate it with the commands above.
 The map UI (`coral_bleaching.web`, the `ui` CLI command) is an optional
 consumer of the pipeline's output files, not a dependency of the pipeline
 itself. `pip install -e '.'` alone installs the pipeline and model with no
-FastAPI/uvicorn; add the `ui` extra (`pip install -e '.[ui]'`, or `'.[dev,ui]'`
-for both) only if you want to run the map. The commands above use the lock
-file, which already includes everything, so this only matters for a minimal
-install outside the lock file.
+FastAPI/uvicorn; add the `ui` extra (`pip install -e '.[ui]'`) to run the map.
+The `dev` extra includes UI and HTTP-test dependencies so `'.[dev]'` can run
+the complete suite. The commands above use the lock file, which already
+includes everything, so this only matters for a minimal install outside the
+lock file.
 
 NumPy is constrained below 2.3 and affine below 3 to avoid compatibility
 warnings with the tested pandas/rasterio stack. All automated tests prohibit
@@ -75,10 +77,12 @@ Generate the synthetic demonstration above, then serve the runs directory:
 coral-bleaching ui --runs-root runs --run demo-001
 ```
 
-Open `http://127.0.0.1:8000`. The map uses the latest observation for each
-reef cell. Click a cell to inspect its bleaching probability, label, confidence
-band, data quality, and signed model contributions. Grey dashed cells are
-observations where the model abstained because imagery was insufficient.
+Open `http://127.0.0.1:8000`. The map selects one observation date across the
+reef. Use the date menu to move between acquisitions, then click a cell to
+inspect its bleaching probability, label, confidence band, data quality, and
+signed model contributions. Grey dashed cells are observations where the model
+abstained because imagery was insufficient; dotted cells have no record on
+the selected date.
 
 Leaflet and OpenStreetMap tiles load from public CDNs, so the map background
 requires network access. The run data stays on the local machine. The included
@@ -93,18 +97,19 @@ skipped evaluation is `not_evaluable`, never a successful validation claim.
 
 No Earth Engine login is needed. The default adapter searches Earth Search
 once per reef/time interval, follows STAC pagination, reads HTTPS COG windows,
-and selects the best usable-pixel fraction per cell/acquisition day. Raster
-blocks are cached by GDAL during processing; searches are cached in memory.
-This is a bounded pilot implementation, not a distributed imagery processor.
+and selects the best usable-pixel fraction per cell/acquisition day. Each scene
+is opened once per band, read over the reef window, and aggregated across all
+cells in one array pass. Searches are cached in memory. This is a bounded pilot
+implementation, not a distributed imagery processor.
 
-1. The reef boundary is `data/heron_island_reef_boundary.geojson`, Heron Island
-   Reef only (~26 km²), derived from an Allen Coral Atlas reef-extent export by
-   `scripts/build_pilot_boundary.py`. See `data/sources/README.md` for the
-   source, license (CC BY 4.0), and derivation. `examples/heron_island.json`
-   already points at it. At the default 75 m cell size this is ~4,800 cells; a
-   full 2020 interval touches every cell on every clear acquisition, so expect
-   the first run to take a while. Raise `cell_size_meters` for a faster first
-   pass.
+1. The approximate analysis extent is
+   `data/heron_island_pilot_extent.geojson` (~26 km²), derived from an Allen
+   Coral Atlas reef-extent export by `scripts/build_pilot_boundary.py`. The
+   source joins Heron to the shoal toward Sykes, so the script applies a
+   documented longitude clip. Review that cutoff against an authoritative
+   named-reef or management boundary before field interpretation. See
+   `data/sources/README.md` for the CC BY 4.0 source and derivation.
+   `examples/heron_island.json` already points at it.
 2. Obtain survey observations that actually classify bleaching/healthy state.
    Percent coral cover alone is not a bleaching label. Normalize as below.
 3. Adjust the acquisition interval in the config if needed; it must be covered

@@ -7,7 +7,11 @@ smaller reef patches), exported from the Allen Coral Atlas on 2026-09-08.
 WGS84 (CRS84), 31 polygons, all class `Reef`.
 
 Used by `scripts/build_pilot_boundary.py` to derive
-`data/heron_island_reef_boundary.geojson` (Heron Island Reef only).
+`data/heron_island_pilot_extent.geojson`. The source does not contain named
+reef boundaries and joins Heron Reef to the sandy shoal extending toward
+Sykes Reef. The derived file uses a documented longitude clip and is an
+approximate pilot analysis extent, not an authoritative ecological or
+management boundary.
 
 **Citation:** Allen Coral Atlas (2020). Imagery, maps and monitoring of the
 world's tropical coral reefs. https://doi.org/10.5281/zenodo.3833242

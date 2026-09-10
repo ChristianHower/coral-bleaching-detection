@@ -24,16 +24,25 @@
     }
     .run-strip strong { display: block; font-size: .95rem; }
     .run-strip span { display: block; margin-top: 2px; color: #526a65; font-size: .78rem; }
+    .run-strip label { display: block; margin-top: 7px; color: #36534e; font-size: .76rem; }
+    .run-strip select { display: block; width: 100%; margin-top: 3px; font: inherit; color: inherit; }
     .legend {
       position: absolute; z-index: 800; left: 14px; bottom: 20px; width: 180px;
       background: #f4f8f6; border: 1px solid #a8bbb6; padding: 10px 11px;
       font-size: .76rem; color: #36534e;
     }
     .legend-title { margin-bottom: 7px; font-weight: 700; color: #17332f; }
-    .risk-ramp { height: 9px; background: linear-gradient(90deg, #087f8c, #73bfb8 34%, #f2b84b 67%, #d95d39); }
-    .risk-labels { display: flex; justify-content: space-between; margin-top: 4px; }
+    .risk-ramp { display: grid; grid-template-columns: repeat(4, 1fr); height: 9px; }
+    .risk-ramp span:nth-child(1) { background: #087f8c; }
+    .risk-ramp span:nth-child(2) { background: #73bfb8; }
+    .risk-ramp span:nth-child(3) { background: #f2b84b; }
+    .risk-ramp span:nth-child(4) { background: #d95d39; }
+    .risk-labels { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 4px; text-align: center; }
+    .risk-labels span:first-child { text-align: left; }
+    .risk-labels span:last-child { text-align: right; }
     .insufficient-key { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
     .insufficient-swatch { width: 20px; height: 12px; background: #8a9590; border: 2px dashed #53605c; }
+    .missing-swatch { width: 20px; height: 12px; background: transparent; border: 2px dotted #7a2f22; }
     aside { overflow: auto; background: #f4f8f6; border-left: 1px solid #9fb2ad; }
     header { padding: 22px 22px 18px; border-bottom: 1px solid #c3d0cd; }
     h1 { margin: 0; font-size: 1.25rem; line-height: 1.2; letter-spacing: -.01em; }
@@ -71,18 +80,23 @@
   <main class="workspace">
     <section class="map-wrap" aria-label="Reef cell prediction map">
       <div id="map" tabindex="0"></div>
-      <div class="run-strip"><strong>Heron Island pilot</strong><span id="run-name"></span></div>
+      <div class="run-strip">
+        <strong>Heron Island pilot</strong><span id="run-name"></span>
+        <label for="observation-date">Observation date</label>
+        <select id="observation-date" disabled></select>
+      </div>
       <div class="legend" aria-label="Bleaching probability legend">
         <div class="legend-title">Bleaching probability</div>
-        <div class="risk-ramp"></div>
-        <div class="risk-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+        <div class="risk-ramp"><span></span><span></span><span></span><span></span></div>
+        <div class="risk-labels"><span>0–24</span><span>25–49</span><span>50–74</span><span>75–100%</span></div>
         <div class="insufficient-key"><span class="insufficient-swatch"></span><span>Insufficient imagery</span></div>
+        <div class="insufficient-key"><span class="missing-swatch"></span><span>No record on date</span></div>
       </div>
     </section>
     <aside aria-live="polite">
       <header>
         <h1>Reef cell inspection</h1>
-        <p>Latest observation per cell. Synthetic runs show software behavior, not field performance.</p>
+        <p>One acquisition date across the reef. Synthetic runs show software behavior, not field performance.</p>
       </header>
       <section id="details"><p class="empty">Select a cell to inspect its prediction and model contributions.</p></section>
     </aside>
@@ -92,9 +106,10 @@
     const defaultRun = "__DEFAULT_RUN__";
     const runName = new URLSearchParams(window.location.search).get("run") || defaultRun;
     const details = document.getElementById("details");
+    const dateSelect = document.getElementById("observation-date");
     document.getElementById("run-name").textContent = `Run: ${runName}`;
 
-    const map = L.map("map", { zoomControl: true });
+    const map = L.map("map", { zoomControl: true, preferCanvas: true });
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 20,
       attribution: "&copy; OpenStreetMap contributors"
@@ -114,13 +129,14 @@
     }
 
     function cellStyle(feature) {
+      const missing = feature.properties.record_status === "missing";
       const unavailable = feature.properties.data_quality === "insufficient";
       return {
-        color: unavailable ? "#53605c" : "#f4f8f6",
-        weight: unavailable ? 2 : 1,
-        dashArray: unavailable ? "5 4" : null,
-        fillColor: unavailable ? "#8a9590" : probabilityColor(feature.properties.probability),
-        fillOpacity: unavailable ? 0.72 : 0.78
+        color: missing ? "#7a2f22" : unavailable ? "#53605c" : "#f4f8f6",
+        weight: missing || unavailable ? 2 : 1,
+        dashArray: missing ? "2 5" : unavailable ? "5 4" : null,
+        fillColor: missing ? "#f4f8f6" : unavailable ? "#8a9590" : probabilityColor(feature.properties.probability),
+        fillOpacity: missing ? 0.25 : unavailable ? 0.72 : 0.78
       };
     }
 
@@ -129,6 +145,12 @@
     }
 
     function showDetails(properties) {
+      if (properties.record_status === "missing") {
+        details.innerHTML = `
+          <p class="cell-id">${escapeText(properties.reef_cell_id)}</p>
+          <div class="notice error">This run has no prediction record for this cell on the selected date.</div>`;
+        return;
+      }
       const unavailable = properties.data_quality === "insufficient";
       if (unavailable) {
         details.innerHTML = `
@@ -157,7 +179,13 @@
         ${contributions || '<p class="empty">No contributions recorded.</p>'}`;
     }
 
-    fetch(`/api/runs/${encodeURIComponent(runName)}`)
+    let reefLayer;
+    let displayedDate;
+
+    function loadDate(date) {
+      dateSelect.disabled = true;
+      const query = date ? `?date=${encodeURIComponent(date)}` : "";
+      return fetch(`/api/runs/${encodeURIComponent(runName)}${query}`)
       .then(async response => {
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
@@ -166,24 +194,46 @@
         return response.json();
       })
       .then(collection => {
-        const layer = L.geoJSON(collection, {
+        if (reefLayer) reefLayer.remove();
+        reefLayer = L.geoJSON(collection, {
           style: cellStyle,
           onEachFeature: (feature, cellLayer) => {
             const properties = feature.properties;
-            const popup = properties.data_quality === "insufficient"
+            const popup = properties.record_status === "missing"
+              ? `<strong>${escapeText(properties.reef_cell_id)}</strong><br>No record on selected date`
+              : properties.data_quality === "insufficient"
               ? `<strong>${escapeText(properties.reef_cell_id)}</strong><br>No prediction — insufficient imagery`
               : `<strong>${escapeText(properties.reef_cell_id)}</strong><br>${Math.round(properties.probability * 100)}% bleaching probability`;
             cellLayer.bindPopup(popup);
             cellLayer.on("click", () => showDetails(properties));
           }
         }).addTo(map);
-        if (layer.getBounds().isValid()) map.fitBounds(layer.getBounds(), { padding: [24, 24] });
-        else throw new Error("This run contains no reef-cell geometry");
+        if (!dateSelect.options.length) {
+          for (const availableDate of collection.metadata.available_dates) {
+            const option = document.createElement("option");
+            option.value = availableDate;
+            option.textContent = availableDate;
+            dateSelect.appendChild(option);
+          }
+          dateSelect.addEventListener("change", () => loadDate(dateSelect.value));
+        }
+        const bounds = reefLayer.getBounds();
+        if (!bounds.isValid()) throw new Error("This run contains no reef-cell geometry");
+        dateSelect.value = collection.metadata.selected_date;
+        displayedDate = collection.metadata.selected_date;
+        dateSelect.disabled = false;
+        details.innerHTML = `<p class="empty">Select a cell to inspect its prediction and model contributions for ${escapeText(displayedDate)}.</p>`;
+        map.fitBounds(bounds, { padding: [24, 24] });
       })
       .catch(error => {
         details.innerHTML = `<div class="notice error">${escapeText(error.message)}</div>`;
-        map.setView([-23.4423, 151.9148], 13);
+        if (displayedDate) dateSelect.value = displayedDate;
+        dateSelect.disabled = false;
+        if (!reefLayer || !reefLayer.getBounds().isValid()) map.setView([-23.4423, 151.9148], 13);
       });
+    }
+
+    loadDate();
   </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-"""Derive the Heron Island Reef pilot boundary from Allen Coral Atlas reef extent.
+"""Derive an approximate Heron Reef pilot extent from Allen Coral Atlas data.
 
 The Allen Coral Atlas "Reef Extent" export for the area downloaded covers the
 whole Capricornia Cays group (Heron, Wistari, Sykes and smaller patches),
@@ -8,7 +8,11 @@ whole Capricornia Cays group (Heron, Wistari, Sykes and smaller patches),
   2. keeps the single largest contiguous reef body (Heron Reef is fused with
      the reef extending east toward Sykes in the source data),
   3. clips it to a bounding box around Heron Reef proper,
-  4. writes the result as a WGS84 GeoJSON the pipeline's load_boundary() reads.
+  4. writes an explicitly approximate WGS84 analysis extent.
+
+The Atlas export does not contain named reef boundaries and joins Heron Reef
+to the shoal toward Sykes Reef. The longitude clip below is a documented pilot
+decision, not an authoritative ecological or management boundary.
 
 Run from the repo root:
 
@@ -27,7 +31,7 @@ from shapely.geometry import box, mapping, shape
 from shapely.ops import unary_union
 
 SOURCE = Path("data/sources/allen_coral_atlas_reef_extent.geojson")
-OUTPUT = Path("data/heron_island_reef_boundary.geojson")
+OUTPUT = Path("data/heron_island_pilot_extent.geojson")
 
 # Heron Reef clip, WGS84 lon/lat. The eastern edge (151.975) separates Heron
 # Reef from the reef platform continuing toward Sykes Reef; the result is a
@@ -64,8 +68,9 @@ def main():
             {
                 "type": "Feature",
                 "properties": {
-                    "name": "Heron Island Reef",
+                    "name": "Heron Reef pilot analysis extent",
                     "reef_id": "heron_island",
+                    "boundary_kind": "approximate_analysis_extent",
                     "source": "Allen Coral Atlas reef extent",
                     "attribution": ATTRIBUTION,
                     "license": "CC BY 4.0",

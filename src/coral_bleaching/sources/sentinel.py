@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import numpy as np
 import rasterio
 from rasterio.enums import Resampling
-from rasterio.features import geometry_mask
+from rasterio.features import rasterize
 from rasterio.vrt import WarpedVRT
 from rasterio.windows import from_bounds
 from shapely.geometry import mapping, shape
@@ -35,6 +35,8 @@ class EarthSearchClient:
         self.raster_open = raster_open or rasterio.open
         self.collection = collection
         self._search_cache = {}
+        self._projected_geometry_cache = {}
+        self._label_raster_cache = {}
         self.provenance = {}
 
     def search(self, geometry, start_date, end_date):
@@ -74,28 +76,59 @@ class EarthSearchClient:
             raise ValueError("Anonymous adapter requires public HTTPS assets")
         return asset
 
-    def observe(self, item, cell):
+    def observe_cells(self, item, cells):
+        """Aggregate one scene for every intersecting cell with three raster opens.
+
+        Reading a common reef window and rasterizing cell IDs keeps remote I/O
+        proportional to scenes instead of cells multiplied by scenes.
+        """
         assets = {name: self._asset(item, name) for name in ("green", "red", "scl")}
         scene_date = datetime.fromisoformat(
             item["properties"]["datetime"].replace("Z", "+00:00")
         ).date()
-        empty = Observation(scene_date, item["id"], None, None, 1.0)
-        if not shape(item["geometry"]).intersects(cell.geometry_wgs84):
-            return empty
+        scene_geometry = shape(item["geometry"])
+        covered = [cell for cell in cells if scene_geometry.intersects(cell.geometry_wgs84)]
+        if not covered:
+            return {}
+
         with self.raster_open(assets["green"]["href"]) as green_ds:
-            geometry = reproject(cell.geometry_wgs84, "EPSG:4326", green_ds.crs)
-            raw_window = from_bounds(*geometry.bounds, transform=green_ds.transform)
+            crs_key = green_ds.crs.to_string()
+            geometries = []
+            for cell in covered:
+                geometry_key = (cell.reef_cell_id, cell.geometry_wgs84.wkb, crs_key)
+                if geometry_key not in self._projected_geometry_cache:
+                    self._projected_geometry_cache[geometry_key] = reproject(
+                        cell.geometry_wgs84, "EPSG:4326", green_ds.crs
+                    )
+                geometries.append(self._projected_geometry_cache[geometry_key])
+            bounds = (
+                min(geometry.bounds[0] for geometry in geometries),
+                min(geometry.bounds[1] for geometry in geometries),
+                max(geometry.bounds[2] for geometry in geometries),
+                max(geometry.bounds[3] for geometry in geometries),
+            )
+            raw_window = from_bounds(*bounds, transform=green_ds.transform)
             col, row = math.floor(raw_window.col_off), math.floor(raw_window.row_off)
             width = math.ceil(raw_window.col_off + raw_window.width) - col
             height = math.ceil(raw_window.row_off + raw_window.height) - row
             window = rasterio.windows.Window(col, row, width, height)
             transform = green_ds.window_transform(window)
             green = green_ds.read(1, window=window, boundless=True, masked=True)
-            inside = geometry_mask(
-                [mapping(geometry)], out_shape=green.shape, transform=transform, invert=True
+            label_key = (
+                tuple((cell.reef_cell_id, cell.geometry_wgs84.wkb) for cell in covered),
+                crs_key,
+                tuple(transform),
+                green.shape,
             )
-            if not inside.any():
-                return empty
+            if label_key not in self._label_raster_cache:
+                self._label_raster_cache[label_key] = rasterize(
+                    ((mapping(geometry), index) for index, geometry in enumerate(geometries, 1)),
+                    out_shape=green.shape,
+                    transform=transform,
+                    fill=0,
+                    dtype="int32",
+                )
+            labels = self._label_raster_cache[label_key]
             arrays = {"green": green}
             for name in ("red", "scl"):
                 with self.raster_open(assets[name]["href"]) as ds:
@@ -109,7 +142,8 @@ class EarthSearchClient:
                         nodata=assets[name].get("raster:bands", [{}])[0].get("nodata", ds.nodata),
                     ) as vrt:
                         arrays[name] = vrt.read(1, masked=True)
-            valid = inside.copy()
+            represented = labels > 0
+            valid = represented.copy()
             values = {}
             for name, arr in arrays.items():
                 metadata = assets[name].get("raster:bands", [{}])[0]
@@ -125,29 +159,58 @@ class EarthSearchClient:
                         raise ValueError("Invalid raster scaling")
                     values[name] = raw * scale + offset
             valid &= ~np.isin(arrays["scl"].data, UNUSABLE_SCL)
-            fraction = 1 - float(valid.sum()) / int(inside.sum())
             self.provenance[item["id"]] = {
                 "datetime": item["properties"]["datetime"],
                 "collection": self.collection,
                 "assets": assets,
                 "unusable_scl": list(UNUSABLE_SCL),
             }
-            return Observation(
-                scene_date,
-                item["id"],
-                float(values["green"][valid].mean()) if valid.any() else None,
-                float(values["red"][valid].mean()) if valid.any() else None,
-                fraction,
+            cell_count = len(covered)
+            represented_count = np.bincount(labels[represented], minlength=cell_count + 1)
+            valid_labels = labels[valid]
+            valid_count = np.bincount(valid_labels, minlength=cell_count + 1)
+            green_sum = np.bincount(
+                valid_labels, weights=values["green"][valid], minlength=cell_count + 1
             )
+            red_sum = np.bincount(
+                valid_labels, weights=values["red"][valid], minlength=cell_count + 1
+            )
+
+            observations = {}
+            for index, cell in enumerate(covered, 1):
+                total = int(represented_count[index])
+                usable = int(valid_count[index])
+                observations[cell.reef_cell_id] = Observation(
+                    scene_date,
+                    item["id"],
+                    float(green_sum[index] / usable) if usable else None,
+                    float(red_sum[index] / usable) if usable else None,
+                    1 - usable / total if total else 1.0,
+                )
+            return observations
+
+    def observe(self, item, cell):
+        """Compatibility wrapper for callers processing a single cell."""
+        return self.observe_cells(item, [cell]).get(
+            cell.reef_cell_id,
+            Observation(
+                datetime.fromisoformat(
+                    item["properties"]["datetime"].replace("Z", "+00:00")
+                ).date(),
+                item["id"],
+                None,
+                None,
+                1.0,
+            ),
+        )
 
     def observations(self, cells, boundary, start_date, end_date):
         """One deterministic best-quality acquisition per cell/day; retain cloudy days."""
         items = self.search(boundary, start_date, end_date)
-        result = {c.reef_cell_id: [] for c in cells}
-        for cell in cells:
-            by_day = {}
-            for item in items:
-                observation = self.observe(item, cell)
+        by_cell = {cell.reef_cell_id: {} for cell in cells}
+        for item in items:
+            for cell_id, observation in self.observe_cells(item, cells).items():
+                by_day = by_cell[cell_id]
                 current = by_day.get(observation.date)
                 rank = (observation.cloud_cover_fraction, observation.source_scene_id)
                 if current is None or rank < (
@@ -155,5 +218,7 @@ class EarthSearchClient:
                     current.source_scene_id,
                 ):
                     by_day[observation.date] = observation
-            result[cell.reef_cell_id] = sorted(by_day.values(), key=lambda x: x.date)
-        return result
+        return {
+            cell_id: sorted(observations.values(), key=lambda observation: observation.date)
+            for cell_id, observations in by_cell.items()
+        }
