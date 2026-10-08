@@ -329,6 +329,79 @@ step that fails.
 Nothing here establishes field performance. It establishes what to acquire, in
 what order, and where the plan is still guessing.
 
+## Proposed stakeholder recommendations (not yet scoped)
+
+Source: email feedback from Sydney's team after their 2026-10-08 meeting
+(relayed by the project owner). Two of the three suggestions concern new data
+inputs and are recorded here as candidate variables; the third is a UI/backend
+concern and is captured in the Module 3/4 plan instead. None of these is
+scoped, sourced, or validated yet. They are written down so they are not lost,
+with the same honesty bar as the rest of this doc: a suggested variable is not
+an available dataset.
+
+### Reef farming / restoration attempts as an assessment variable
+
+The team suggested treating reef-farming or restoration attempts — successful
+or not — as a variable in the assessment.
+
+- **What it would be.** A per-location record of restoration activity (coral
+  gardening, out-planting, larval reseeding, substrate stabilization) with a
+  date, an outcome if known, and a footprint. In model terms it is a candidate
+  covariate on a `(reef_cell_id, date)` row, not a label.
+- **Why it is a confounder, not a bleaching signal.** A cell under active
+  restoration can look spectrally different for reasons unrelated to thermal
+  bleaching (recently out-planted colonies, disturbed substrate, structures).
+  Feeding restoration activity in without flagging it risks the model learning
+  "restored" as a proxy for something it is not. If used at all, it belongs as
+  an explicit covariate the way `cloud_cover_fraction` is, with the restored
+  state recorded, never silently folded into the bleaching label.
+- **Data availability — unverified.** No single authoritative public,
+  per-site restoration dataset is confirmed for Heron Island. Candidate
+  sources to check: Reef Restoration and Adaptation Program (RRAP) and the
+  Reef Restoration Foundation activity records, GBRMPA permits for restoration
+  works, and any site-level logs the pilot's own field partners keep. Spatial
+  resolution and licensing are unknown until a source is identified. Treat this
+  as a data-request item, parallel to the label request, not a download.
+- **Fit to the schema.** This does not map to the `survey_id,survey_date,label`
+  survey contract (it is not a bleached/healthy observation). It would require a
+  new, separate covariate input and a schema addition — out of scope to design
+  here; flagged for Module 1/2 feature design if the project decides to pursue
+  it and a source exists.
+
+### Invasive biota impact
+
+The team suggested taking the impact of invasive biota into consideration.
+
+- **What it would be.** A per-location indicator of invasive or outbreak
+  species pressure. The most relevant on the GBR is the crown-of-thorns
+  starfish (COTS, *Acanthaster*), a coral predator whose outbreaks cause coral
+  loss. A COTS-density or outbreak-status covariate per cell/date is the
+  concrete version of this suggestion.
+- **Why it is a confounder, not a bleaching signal.** Coral loss from COTS
+  predation is not thermal bleaching. A cell that lost coral cover to an
+  outbreak is a false positive for a bleaching detector if the two causes are
+  not separated. Like restoration, this is a covariate/confounder to record and
+  control for, not a bleaching label — and recording it could actually help the
+  model and the ranger distinguish "lost coral to a starfish outbreak" from
+  "bleached."
+- **Data availability — partly promising.** AIMS LTMP manta-tow surveys already
+  record COTS and dead-coral alongside coral cover (noted in Section 2 above),
+  so COTS pressure may be obtainable from the same LTMP request already on the
+  critical path — but at manta-tow reef-perimeter resolution, which is too
+  coarse to place in one 75 m cell honestly (same footprint caveat as the
+  manta-tow cover data). Finer COTS-control-program data may exist via GBRMPA /
+  the COTS Control Program; availability and resolution unverified.
+- **Fit to the schema.** Same as restoration: a covariate, not a label; a new
+  input and schema addition if pursued, out of scope to design here.
+
+### Status
+
+Both items are **proposed**, not accepted. Each needs a confirmed data source,
+a resolution check against the 75 m grid, a license, and an explicit decision
+to treat it as a controlled covariate (not a label) before any pipeline work.
+They are added to the open-questions set: pursue only if a usable source is
+found, and only as covariates with documented confounder handling.
+
 ## Sources checked (2026-10-08)
 
 - Sentinel-2 adapter and masking: `src/coral_bleaching/sources/sentinel.py`
