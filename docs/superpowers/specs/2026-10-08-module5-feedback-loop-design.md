@@ -305,7 +305,53 @@ to enforce. Concretely:
   date within the matching window. It is not spread to neighbors to manufacture
   training rows.
 
-## 5. Open questions and non-goals
+## 5. Proposed stakeholder recommendations (not yet scoped)
+
+Source: email feedback from Sydney's team after their 2026-10-08 meeting
+(relayed by the project owner). For traceability, their three suggestions are
+recorded against every design doc. **None of the three is a Module 5 feature.**
+They land elsewhere:
+
+- Reef farming / restoration attempts as an assessment variable — a model
+  covariate; see `docs/superpowers/plans/2026-10-08-real-data-acquisition.md`.
+- Invasive biota (e.g. crown-of-thorns starfish) impact — a model covariate;
+  same acquisition plan.
+- Governing-body view per reef section — a UI/backend overlay; see
+  `docs/superpowers/plans/2026-10-08-module3-4-ui-backend-design.md`.
+
+They are noted here only because the first two interact with the feedback
+loop's honesty guarantees, and that interaction is in Module 5's scope to state.
+
+### Interaction with ranger confirmations (the only Module 5 touch-point)
+
+If restoration activity and invasive-biota pressure become covariates, they
+sharpen a confounder the confirmation loop must respect: a cell can lose coral
+cover for reasons that are not thermal bleaching (a COTS outbreak, disturbance
+at a restoration site). A ranger confirming "bleached" on such a cell may be
+recording real coral loss with the wrong cause — a misattribution, not a
+mistake the ranger would notice from the model's flag alone.
+
+Consequences for this design, all consistent with §4:
+
+- The confirmation vocabulary stays `bleached` / `healthy` in v1. Cause
+  attribution (bleaching vs. predation vs. restoration disturbance) is **not** a
+  ranger field in the first version; adding a cause taxonomy is a possible later
+  extension, not a v1 commitment. Recording a miscaused "bleached" would quietly
+  teach the detector the wrong signal.
+- If a COTS/restoration covariate exists for a cell/date, it is a feature the
+  model already sees — it does not change the confirmation record or the label
+  tier. The `note` field remains free text and is never parsed into a label or
+  a cause.
+- This strengthens the case for keeping AIMS as the sole validation authority
+  in v1: an independent bleaching-classified survey is less likely to confuse
+  predation/restoration loss with bleaching than an in-field ranger reacting to
+  a flag.
+
+No data model, weighting, or write-path change follows from the stakeholder
+recommendations. This section exists so the misattribution risk is on record,
+not to add scope.
+
+## 6. Open questions and non-goals
 
 ### Open questions
 
