@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pyproj
@@ -7,7 +8,7 @@ from shapely.ops import transform
 from coral_bleaching.cli import load_region
 from coral_bleaching.grid import generate_grid, load_boundary
 
-BOUNDARY = Path("data/heron_island_reef_boundary.geojson")
+BOUNDARY = Path("data/heron_island_pilot_extent.geojson")
 TO_UTM = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:32756", always_xy=True).transform
 
 
@@ -15,7 +16,7 @@ def _area_km2(geom):
     return transform(TO_UTM, geom).area / 1e6
 
 
-def test_committed_boundary_is_heron_reef():
+def test_committed_extent_is_plausible_for_the_heron_pilot():
     boundary = load_boundary(BOUNDARY)
     assert boundary.geom_type in ("Polygon", "MultiPolygon")
     # Heron Reef is commonly cited at ~26 km2; guard against a stale file that
@@ -24,6 +25,9 @@ def test_committed_boundary_is_heron_reef():
     minx, miny, maxx, maxy = boundary.bounds
     assert 151.88 < minx and maxx < 151.98
     assert -23.48 < miny and maxy < -23.42
+
+    source = json.loads(BOUNDARY.read_text())
+    assert source["features"][0]["properties"]["boundary_kind"] == "approximate_analysis_extent"
 
 
 def test_boundary_generates_a_plausible_grid():

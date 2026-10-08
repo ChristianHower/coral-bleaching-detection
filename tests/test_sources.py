@@ -141,6 +141,22 @@ def test_reef_intersection_excludes_clouds_outside_cell(raster_scene):
         client.observe(item, clipped)
 
 
+def test_scene_is_opened_once_per_band_for_multiple_cells(raster_scene):
+    item, _, paths = raster_scene
+    left_geometry = reproject(box(389000, 7406960, 389020, 7407000), "EPSG:32756", "EPSG:4326")
+    right_geometry = reproject(box(389020, 7406960, 389040, 7407000), "EPSG:32756", "EPSG:4326")
+    cells = [
+        ReefCell("left", left_geometry, left_geometry.centroid.y, left_geometry.centroid.x),
+        ReefCell("right", right_geometry, right_geometry.centroid.y, right_geometry.centroid.x),
+    ]
+    raster_open = Mock(side_effect=lambda url: rasterio.open(paths[url]))
+    observations = EarthSearchClient(raster_open=raster_open).observe_cells(item, cells)
+
+    assert raster_open.call_count == 3
+    assert observations["left"].cloud_cover_fraction == pytest.approx(0)
+    assert observations["right"].cloud_cover_fraction == pytest.approx(0.5)
+
+
 def test_noaa_http_errors_missing_rows_and_malformed_columns():
     response = noaa_response()
     response.raise_for_status.side_effect = RuntimeError("HTTP 503")

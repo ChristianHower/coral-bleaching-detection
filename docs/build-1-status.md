@@ -41,12 +41,13 @@ the working Python request used here.
 
 Before a real field-evaluated run, obtain suitable bleaching observations
 (classifying bleached/healthy state, not just coral cover), their spatial
-mapping, and usable imagery across enough independent survey dates. The Heron
-Island Reef boundary is now bundled (`data/heron_island_reef_boundary.geojson`,
-from an Allen Coral Atlas CC BY 4.0 export; see `data/sources/README.md`). No
-real bleaching-survey data is bundled and no live trained bleaching model is
-claimed. The 2016 L2A archive gap remains unresolved; the default pilot targets
-2020. Confidence bands are uncalibrated descriptive scores. Earth Engine is an
+mapping, and usable imagery across enough independent survey dates. An
+approximate pilot extent is now bundled (`data/heron_island_pilot_extent.geojson`,
+from an Allen Coral Atlas CC BY 4.0 export; see `data/sources/README.md`). Its
+manual eastern cutoff still requires independent boundary review. No real
+bleaching-survey data is bundled and no live trained bleaching model is claimed.
+The 2016 L2A archive gap remains unresolved; the default pilot targets 2020.
+Confidence bands are uncalibrated descriptive scores. Earth Engine is an
 optional future adapter.
 
 Run commands and detailed data contracts are in README.md. The source archive

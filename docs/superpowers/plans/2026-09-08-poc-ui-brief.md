@@ -34,9 +34,9 @@ Out of scope for this pass (do not build yet):
   `GET /api/runs/{run_name}`, that:
   - Reads `runs/{run_name}/grid.geojson` and
     `runs/{run_name}/predictions.parquet`.
-  - Joins predictions onto grid features by `reef_cell_id` + `date` (a
-    cell may have multiple dates — for this POC, pick the latest date per
-    cell; note that simplification in a comment).
+  - Joins predictions onto grid features by `reef_cell_id` + `date`. The
+    endpoint selects one reef-wide date (latest by default) and accepts a
+    `date` query parameter so the map never mixes acquisition dates.
   - Returns a single GeoJSON FeatureCollection with the prediction fields
     merged into each feature's properties.
   - 404s clearly if the run directory or its files don't exist.
@@ -55,6 +55,8 @@ Out of scope for this pass (do not build yet):
 - A cell with `data_quality: insufficient` renders distinctly and its
   popup shows there's no prediction available, rather than showing a
   null/blank probability.
+- A cell without a record on the selected date is visually and textually
+  distinct from an imagery-quality abstention.
 - Document the run command in README.md.
 - No new heavyweight dependencies beyond a web framework (FastAPI/Flask)
   and its ASGI/WSGI server — keep the frontend dependency-free (CDN

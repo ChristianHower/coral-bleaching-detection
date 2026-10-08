@@ -1,6 +1,6 @@
 {
   "reef_id": "heron_island",
-  "boundary_geojson_path": "../data/heron_island_reef_boundary.geojson",
+  "boundary_geojson_path": "../data/heron_island_pilot_extent.geojson",
   "start_date": "2020-01-01",
   "end_date": "2020-06-30",
   "cell_size_meters": 75.0,

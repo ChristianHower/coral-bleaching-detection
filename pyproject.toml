@@ -12,7 +12,13 @@ dependencies = ["pandas>=2.2,<3", "pyarrow>=17,<24", "shapely>=2,<3", "pyproj>=3
 # The map UI (coral_bleaching.web) is a separate, optional consumer of the
 # pipeline/model output files. Installing the pipeline never requires it.
 ui = ["fastapi>=0.116,<1", "uvicorn>=0.35,<1"]
-dev = ["pytest>=8,<10", "ruff>=0.11,<1"]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.11,<1",
+    "fastapi>=0.116,<1",
+    "uvicorn>=0.35,<1",
+    "httpx2>=2.12,<3",
+]
 [project.scripts]
 coral-bleaching = "coral_bleaching.cli:main"
 [tool.setuptools.packages.find]
