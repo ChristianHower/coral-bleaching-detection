@@ -353,7 +353,69 @@ stays the immutable source of truth; SQLite is rebuildable from it (except
 confirmations, which are backed up separately as the one piece of
 non-derived state).
 
-## 5. Open questions and non-goals
+## 5. Proposed stakeholder recommendations (not yet scoped)
+
+Source: email feedback from Sydney's team after their 2026-10-08 meeting
+(relayed by the project owner). Of their three suggestions, two (restoration
+activity and invasive biota) are data/model inputs captured in
+`docs/superpowers/plans/2026-10-08-real-data-acquisition.md`. The third is a
+UI/backend feature and is recorded here. It is proposed, not accepted, and not
+scoped into the staged plan above; this section describes where it would fit if
+pursued.
+
+### Governing-body view per reef section
+
+The team suggested a feature to view the governing body responsible for each
+section of a reef.
+
+- **What it is.** A jurisdiction/management overlay: for a given cell or reef
+  section, show which authority governs it (e.g. GBRMPA zone, a specific marine
+  park zone, a Traditional Owner sea-country area, or a research-permit holder).
+  This is administrative/geographic metadata, not a model input and not a
+  bleaching signal — it does not touch Modules 1/2 or the prediction contract.
+- **Where it fits in the data model.** It is region/geometry metadata, so it
+  attaches to the backend's region layer, not to `prediction` or
+  `confirmation`. Two honest options:
+  - a `management_zone(region_id, zone_id, name, governing_body, geometry_geojson)`
+    table holding the jurisdiction polygons, independent of the reef-cell grid;
+    a cell's governing body is resolved by spatial lookup (which zone contains
+    the cell), computed at ingest and cached per cell. This keeps zones and the
+    model grid decoupled — zone boundaries do not have to align with 75 m cells.
+  - or, if zones are coarse and stable, a precomputed `reef_cell.zone_id`
+    column populated at ingest. Simpler, but recomputed whenever zones change.
+
+  The spatial-lookup table is the more honest default: management boundaries are
+  authoritative polygons in their own right and should not be approximated onto
+  the analysis grid, the same discipline applied to the reef boundary itself.
+- **API.** Additive, region-first, no change to existing response shapes:
+  - `GET /api/regions/{region_id}/zones` → GeoJSON FeatureCollection of the
+    management-zone polygons with `governing_body` in properties, for a map
+    overlay layer.
+  - the per-cell `predictions` and `history` responses gain an optional
+    `governing_body` / `zone_id` property resolved at ingest, so a cell popup
+    can state its jurisdiction without a second request.
+- **UI.** A toggleable overlay layer on the existing map (zone outlines +
+  a legend of governing bodies), and a line in the inspection panel naming the
+  governing body for the selected cell. It must read as an administrative
+  overlay distinct from the risk ramp — outline/label treatment, not a fill
+  that competes with the bleaching-probability colors. No new color scale that
+  could be confused with risk.
+- **Data availability — unverified.** Authoritative zoning polygons likely
+  exist (GBRMPA Marine Park zoning is published spatial data), but the exact
+  source, format, license, and whether "governing body" means statutory zoning,
+  Traditional Owner sea country, or something more granular are open. Treat as
+  a data-request item; resolution against the pilot extent is unknown until a
+  source is identified.
+
+### Status
+
+Proposed, not accepted. Needs a confirmed authoritative zoning source, a
+license, and a decision on what "governing body" means for the pilot before any
+work. If pursued, it is additive to the Module 4 region layer and the Module 3
+map; it does not alter the pipeline, the prediction contract, or the Module 5
+write path.
+
+## 6. Open questions and non-goals
 
 ### Non-goals (first real version)
 
