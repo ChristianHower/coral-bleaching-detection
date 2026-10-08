@@ -194,6 +194,78 @@ def create_app(runs_root="runs", default_run="demo-001"):
     return app
 
 
+def create_region_app(db_path, default_region=None):
+    """App serving the SQLite-backed, region-keyed read API and the map UI.
+
+    Read-only. The pipeline never imports this; the write path (Module 5)
+    attaches its endpoints to this same app later.
+    """
+    from coral_bleaching import store
+
+    app = FastAPI(title="Coral bleaching reef map", docs_url=None, redoc_url=None)
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+    index_path = Path(__file__).with_name("static") / "region.html"
+
+    def _conn():
+        return store.connect(db_path)
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    def index():
+        with _conn() as connection:
+            regions = store.list_regions(connection)
+        chosen = default_region or (regions[0]["region_id"] if regions else "")
+        page = index_path.read_text()
+        return page.replace('"__DEFAULT_REGION__"', _script_json(chosen))
+
+    @app.get("/api/regions")
+    def regions():
+        with _conn() as connection:
+            return store.list_regions(connection)
+
+    @app.get("/api/regions/{region_id}/grid")
+    def region_grid(region_id: str):
+        with _conn() as connection:
+            grid = store.region_grid(connection, region_id)
+        if grid is None:
+            raise HTTPException(status_code=404, detail=f"Region '{region_id}' not found")
+        return grid
+
+    @app.get("/api/regions/{region_id}/predictions")
+    def region_predictions(
+        region_id: str, observation_date: str | None = Query(default=None, alias="date")
+    ):
+        try:
+            with _conn() as connection:
+                result = store.region_predictions(connection, region_id, observation_date)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        if result is None:
+            raise HTTPException(
+                status_code=404, detail=f"Region '{region_id}' has no published run"
+            )
+        return result
+
+    @app.get("/api/regions/{region_id}/cells/{reef_cell_id}/history")
+    def cell_history(region_id: str, reef_cell_id: str):
+        with _conn() as connection:
+            result = store.cell_history(connection, region_id, reef_cell_id)
+        if result is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No published history for cell '{reef_cell_id}' in '{region_id}'",
+            )
+        return result
+
+    @app.get("/api/regions/{region_id}/runs")
+    def region_runs(region_id: str):
+        with _conn() as connection:
+            if not any(r["region_id"] == region_id for r in store.list_regions(connection)):
+                raise HTTPException(status_code=404, detail=f"Region '{region_id}' not found")
+            return store.list_runs(connection, region_id)
+
+    return app
+
+
 app = create_app()
 
 
@@ -201,3 +273,9 @@ def serve(runs_root, run_name, host, port):
     import uvicorn
 
     uvicorn.run(create_app(runs_root, run_name), host=host, port=port)
+
+
+def serve_region(db_path, host, port, default_region=None):
+    import uvicorn
+
+    uvicorn.run(create_region_app(db_path, default_region), host=host, port=port)

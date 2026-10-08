@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reef health map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    /* Palette is the reef-water-to-warning ramp carried over from the POC:
+       living-reef teal at low risk, coral/warm red at high. Not a brand scale.
+       Non-probability states (insufficient / missing / DHW disagreement) stay
+       off the ramp so they can't be misread as low or high risk. */
+    :root {
+      color-scheme: light;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #17332f;
+      background: #dbe7e4;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 320px; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; height: 100vh; }
+    .map-wrap { position: relative; min-height: 420px; background: #a9cfca; }
+    #map { width: 100%; height: 100%; }
+    .run-strip {
+      position: absolute; z-index: 800; top: 14px; left: 54px; max-width: 300px;
+      background: #f4f8f6; border-left: 4px solid #0a6f73; padding: 9px 13px;
+      box-shadow: 0 1px 4px rgb(17 51 47 / 22%);
+    }
+    .run-strip strong { display: block; font-size: .95rem; }
+    .run-strip span { display: block; margin-top: 2px; color: #526a65; font-size: .78rem; }
+    .run-strip .synthetic { margin-top: 5px; color: #7a2f22; font-weight: 600; }
+    .legend {
+      position: absolute; z-index: 800; left: 14px; bottom: 20px; width: 186px;
+      background: #f4f8f6; border: 1px solid #a8bbb6; padding: 10px 11px;
+      font-size: .76rem; color: #36534e;
+    }
+    .legend-title { margin-bottom: 7px; font-weight: 700; color: #17332f; }
+    .risk-ramp { display: grid; grid-template-columns: repeat(4, 1fr); height: 9px; }
+    .risk-ramp span:nth-child(1) { background: #087f8c; }
+    .risk-ramp span:nth-child(2) { background: #73bfb8; }
+    .risk-ramp span:nth-child(3) { background: #f2b84b; }
+    .risk-ramp span:nth-child(4) { background: #d95d39; }
+    .risk-labels { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 4px; text-align: center; }
+    .risk-labels span:first-child { text-align: left; }
+    .risk-labels span:last-child { text-align: right; }
+    .legend-key { display: flex; align-items: center; gap: 7px; margin-top: 9px; }
+    .insufficient-swatch { width: 20px; height: 12px; background: #8a9590; border: 2px dashed #53605c; }
+    .missing-swatch { width: 20px; height: 12px; background: transparent; border: 2px dotted #7a2f22; }
+    .dhw-swatch {
+      width: 20px; height: 12px; background: #087f8c;
+      /* diagonal hatch marks a cell the model calls healthy while DHW flags heat
+         stress — two different claims shown together, not collapsed into one. */
+      background-image: repeating-linear-gradient(45deg, transparent 0 2px, #17332f 2px 3px);
+    }
+    /* Timeline: one tick per acquisition date, height encodes share of cells
+       flagged bleached that date, so a ranger sees which dates matter before
+       clicking. */
+    .timeline {
+      position: absolute; z-index: 800; left: 14px; right: 14px; top: 14px;
+      background: #f4f8f6cc; border: 1px solid #a8bbb6; padding: 7px 9px;
+      display: none;
+    }
+    .timeline.ready { display: block; }
+    .timeline-title { font-size: .72rem; color: #526a65; margin-bottom: 5px; }
+    .timeline-track { display: flex; align-items: flex-end; gap: 2px; height: 34px; }
+    .tick {
+      flex: 1 1 0; min-width: 3px; background: #b7c9c4; cursor: pointer;
+      border: 0; padding: 0; align-self: flex-end;
+    }
+    .tick:hover, .tick:focus { outline: 2px solid #0a6f73; outline-offset: 1px; }
+    .tick.selected { background: #0a6f73; }
+    .timeline-dates { display: flex; justify-content: space-between; margin-top: 4px; font-size: .68rem; color: #657873; }
+    aside { overflow: auto; background: #f4f8f6; border-left: 1px solid #9fb2ad; }
+    header { padding: 22px 22px 18px; border-bottom: 1px solid #c3d0cd; }
+    h1 { margin: 0; font-size: 1.25rem; line-height: 1.2; letter-spacing: -.01em; }
+    header p { margin: 7px 0 0; font-size: .87rem; line-height: 1.45; color: #526a65; }
+    #details { padding: 20px 22px 28px; }
+    .empty { margin: 0; color: #61746f; line-height: 1.5; }
+    .cell-id { margin: 0 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; color: #526a65; word-break: break-all; }
+    .risk-readout { display: flex; align-items: baseline; gap: 9px; padding: 13px 0 17px; border-bottom: 1px solid #c3d0cd; }
+    .risk-readout strong { font-size: 2.15rem; line-height: 1; }
+    .risk-readout span { color: #526a65; text-transform: capitalize; }
+    dl { display: grid; grid-template-columns: 1fr 1fr; gap: 13px 16px; margin: 18px 0; }
+    dt { color: #657873; font-size: .76rem; }
+    dd { margin: 3px 0 0; font-size: .9rem; text-transform: capitalize; }
+    dd.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: none; }
+    .dhw-warn { color: #7a2f22; }
+    h2 { margin: 22px 0 10px; font-size: .92rem; }
+    .trend { margin: 6px 0 20px; }
+    .trend svg { width: 100%; height: 56px; display: block; }
+    .trend-caption { margin-top: 5px; font-size: .72rem; color: #657873; }
+    .contribution { padding: 10px 0; border-top: 1px solid #d0dad7; }
+    .contribution:first-of-type { border-top: 0; }
+    .contribution-line { display: flex; justify-content: space-between; gap: 12px; font-size: .84rem; }
+    .feature-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .positive { color: #b84a2c; }
+    .negative { color: #08747c; }
+    .feature-value { margin-top: 3px; color: #6b7e79; font-size: .75rem; }
+    .confirm-stub { margin-top: 22px; padding-top: 16px; border-top: 1px solid #c3d0cd; }
+    .confirm-stub p { margin: 0 0 9px; font-size: .8rem; color: #657873; }
+    .confirm-stub button { font: inherit; padding: 7px 11px; margin-right: 7px; border: 1px solid #9fb2ad; background: #e8efec; color: #4a5c58; cursor: not-allowed; }
+    .notice { border-left: 4px solid #66736f; padding: 11px 12px; background: #e2e7e5; line-height: 1.4; }
+    .error { color: #7a2f22; background: #f4dfd9; border-left-color: #b64b35; }
+    .leaflet-popup-content-wrapper { border-radius: 2px; }
+    .leaflet-popup-content { font-family: inherit; line-height: 1.4; }
+    @media (max-width: 760px) {
+      .workspace { grid-template-columns: 1fr; grid-template-rows: 58vh minmax(280px, auto); height: auto; min-height: 100vh; }
+      aside { border-left: 0; border-top: 1px solid #9fb2ad; }
+      .run-strip { left: 50px; right: 10px; max-width: none; }
+      .legend { bottom: 12px; left: 10px; }
+      .timeline { top: auto; bottom: 150px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="workspace">
+    <section class="map-wrap" aria-label="Reef health map">
+      <div id="map" tabindex="0"></div>
+      <div class="run-strip">
+        <strong id="region-name">Reef</strong>
+        <span id="run-provenance"></span>
+        <span class="synthetic" id="synthetic-note" hidden>Synthetic run — software behavior, not field performance.</span>
+      </div>
+      <div class="timeline" id="timeline" aria-label="Acquisition timeline">
+        <div class="timeline-title">Acquisition dates — bar height is share of cells flagged bleached</div>
+        <div class="timeline-track" id="timeline-track" role="group"></div>
+        <div class="timeline-dates"><span id="timeline-first"></span><span id="timeline-last"></span></div>
+      </div>
+      <div class="legend" aria-label="Bleaching probability legend">
+        <div class="legend-title">Bleaching probability</div>
+        <div class="risk-ramp"><span></span><span></span><span></span><span></span></div>
+        <div class="risk-labels"><span>0–24</span><span>25–49</span><span>50–74</span><span>75–100%</span></div>
+        <div class="legend-key"><span class="insufficient-swatch"></span><span>Insufficient imagery</span></div>
+        <div class="legend-key"><span class="missing-swatch"></span><span>No record on date</span></div>
+        <div class="legend-key"><span class="dhw-swatch"></span><span>Model healthy, DHW heat-stress flag</span></div>
+      </div>
+    </section>
+    <aside aria-live="polite">
+      <header>
+        <h1>Reef cell inspection</h1>
+        <p>One acquisition date across the reef. Pick a cell to see its prediction, reasoning, and trend over time.</p>
+      </header>
+      <section id="details"><p class="empty">Select a cell to inspect its prediction and model contributions.</p></section>
+    </aside>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const defaultRegion = "__DEFAULT_REGION__";
+    const regionId = new URLSearchParams(window.location.search).get("region") || defaultRegion;
+    const details = document.getElementById("details");
+
+    const map = L.map("map", { zoomControl: true, preferCanvas: true });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 20,
+      attribution: "&copy; OpenStreetMap contributors"
+    }).addTo(map);
+
+    function escapeText(value) {
+      return String(value ?? "").replace(/[&<>'"]/g, character => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+      })[character]);
+    }
+
+    function probabilityColor(probability) {
+      if (probability < 0.25) return "#087f8c";
+      if (probability < 0.5) return "#73bfb8";
+      if (probability < 0.75) return "#f2b84b";
+      return "#d95d39";
+    }
+
+    function dhwDisagreement(properties) {
+      // Model calls it healthy while the weak thermal proxy flags heat stress.
+      return properties.record_status === "available"
+        && properties.data_quality === "ok"
+        && properties.predicted_label === "healthy"
+        && properties.dhw_risk_flag === true;
+    }
+
+    function cellStyle(feature) {
+      const p = feature.properties;
+      const missing = p.record_status === "missing";
+      const unavailable = p.data_quality === "insufficient";
+      return {
+        color: missing ? "#7a2f22" : unavailable ? "#53605c" : "#f4f8f6",
+        weight: missing || unavailable ? 2 : 1,
+        dashArray: missing ? "2 5" : unavailable ? "5 4" : null,
+        fillColor: missing ? "#f4f8f6" : unavailable ? "#8a9590" : probabilityColor(p.probability),
+        fillOpacity: missing ? 0.25 : unavailable ? 0.72 : 0.78
+      };
+    }
+
+    function formatValue(value, digits = 3) {
+      return value === null || value === undefined ? "Unavailable" : Number(value).toFixed(digits);
+    }
+
+    // Inline SVG sparkline of probability across all dates for one cell. No
+    // charting library; the line breaks where imagery was insufficient (null
+    // probability), so a gap reads as "couldn't tell", never as zero.
+    function sparkline(history) {
+      const width = 300, height = 56, pad = 4;
+      const points = history.map((row, index) => {
+        const x = pad + (index / Math.max(1, history.length - 1)) * (width - 2 * pad);
+        const probability = row.probability;
+        const y = probability === null || probability === undefined
+          ? null
+          : height - pad - probability * (height - 2 * pad);
+        return { x, y };
+      });
+      let path = "", open = false;
+      for (const point of points) {
+        if (point.y === null) { open = false; continue; }
+        path += `${open ? "L" : "M"}${point.x.toFixed(1)} ${point.y.toFixed(1)} `;
+        open = true;
+      }
+      const dots = points.filter(p => p.y !== null)
+        .map(p => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="1.8" fill="#0a6f73"></circle>`)
+        .join("");
+      const mid = height - pad - 0.5 * (height - 2 * pad);
+      return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Probability trend across dates">
+        <line x1="${pad}" y1="${mid}" x2="${width - pad}" y2="${mid}" stroke="#c3d0cd" stroke-dasharray="3 3"></line>
+        <path d="${path.trim()}" fill="none" stroke="#0a6f73" stroke-width="1.6"></path>
+        ${dots}
+      </svg>`;
+    }
+
+    function renderTrend(cellId) {
+      const slot = document.getElementById(`trend-slot`);
+      if (!slot) return;
+      fetch(`/api/regions/${encodeURIComponent(regionId)}/cells/${encodeURIComponent(cellId)}/history`)
+        .then(response => response.ok ? response.json() : Promise.reject(new Error(`history ${response.status}`)))
+        .then(data => {
+          const scored = data.history.filter(row => row.probability !== null).length;
+          slot.innerHTML = `${sparkline(data.history)}
+            <div class="trend-caption">Bleaching probability across ${data.history.length} dates
+            (${scored} with usable imagery). Dashed line is 50%.</div>`;
+        })
+        .catch(() => { slot.innerHTML = `<p class="empty">Trend unavailable.</p>`; });
+    }
+
+    function showDetails(properties) {
+      const cellId = properties.reef_cell_id;
+      if (properties.record_status === "missing") {
+        details.innerHTML = `
+          <p class="cell-id">${escapeText(cellId)}</p>
+          <div class="notice error">No prediction record for this cell on the selected date.</div>`;
+        return;
+      }
+      if (properties.data_quality === "insufficient") {
+        details.innerHTML = `
+          <p class="cell-id">${escapeText(cellId)}</p>
+          <div class="notice">No prediction — imagery below the quality threshold on this date.</div>
+          <dl><div><dt>Observation</dt><dd class="mono">${escapeText(properties.date || "Unavailable")}</dd></div>
+          <div><dt>DHW</dt><dd>${formatValue(properties.dhw, 1)}</dd></div></dl>
+          <h2>Trend</h2><div class="trend" id="trend-slot"><p class="empty">Loading…</p></div>`;
+        renderTrend(cellId);
+        return;
+      }
+      const disagree = dhwDisagreement(properties);
+      const contributions = (properties.top_contributing_features || []).map(item => {
+        const signClass = item.contribution >= 0 ? "positive" : "negative";
+        const sign = item.contribution >= 0 ? "+" : "";
+        return `<div class="contribution">
+          <div class="contribution-line"><span class="feature-name">${escapeText(item.feature)}</span><strong class="${signClass}">${sign}${formatValue(item.contribution)}</strong></div>
+          <div class="feature-value">Observed value: ${formatValue(item.value)}</div>
+        </div>`;
+      }).join("");
+      details.innerHTML = `
+        <p class="cell-id">${escapeText(cellId)}</p>
+        <div class="risk-readout"><strong>${Math.round(properties.probability * 100)}%</strong><span>${escapeText(properties.predicted_label)}</span></div>
+        <dl>
+          <div><dt>Observation</dt><dd class="mono">${escapeText(properties.date)}</dd></div>
+          <div><dt>Confidence band</dt><dd>${escapeText(properties.confidence_band)}</dd></div>
+          <div><dt>Data quality</dt><dd>${escapeText(properties.data_quality)}</dd></div>
+          <div><dt>DHW</dt><dd class="${properties.dhw_risk_flag ? "dhw-warn" : ""}">${formatValue(properties.dhw, 1)}${properties.dhw_risk_flag ? " (heat-stress flag)" : ""}</dd></div>
+        </dl>
+        ${disagree ? '<div class="notice">Model reads healthy, but DHW flags thermal stress here. DHW is a weak proxy, not localized bleaching evidence — treat as a prompt to look, not a confirmation.</div>' : ""}
+        <h2>Trend</h2><div class="trend" id="trend-slot"><p class="empty">Loading…</p></div>
+        <h2>Top model contributions</h2>
+        ${contributions || '<p class="empty">No contributions recorded.</p>'}
+        <div class="confirm-stub">
+          <p>Field confirmation (arrives with the feedback loop):</p>
+          <button type="button" disabled>Confirm bleached</button>
+          <button type="button" disabled>Confirm healthy</button>
+        </div>`;
+      renderTrend(cellId);
+    }
+
+    let reefLayer;
+    let selectedDate;
+    let firstFit = false;
+    const dateSummaries = {};
+
+    function buildTimeline(dates) {
+      const track = document.getElementById("timeline-track");
+      track.innerHTML = "";
+      for (const date of dates) {
+        const flagged = dateSummaries[date] ? dateSummaries[date].flaggedShare : 0;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "tick" + (date === selectedDate ? " selected" : "");
+        button.style.height = `${Math.max(8, flagged * 100)}%`;
+        button.title = `${date}: ${(flagged * 100).toFixed(0)}% of cells flagged bleached`;
+        button.setAttribute("aria-label", button.title);
+        button.addEventListener("click", () => loadDate(date));
+        track.appendChild(button);
+      }
+      document.getElementById("timeline-first").textContent = dates[0] || "";
+      document.getElementById("timeline-last").textContent = dates[dates.length - 1] || "";
+      document.getElementById("timeline").classList.add("ready");
+    }
+
+    function summarize(collection, date) {
+      let flagged = 0, total = 0;
+      for (const feature of collection.features) {
+        const p = feature.properties;
+        if (p.record_status === "available" && p.data_quality === "ok") {
+          total += 1;
+          if (p.predicted_label === "bleached") flagged += 1;
+        }
+      }
+      dateSummaries[date] = { flaggedShare: total ? flagged / total : 0 };
+    }
+
+    function loadDate(date) {
+      const query = date ? `?date=${encodeURIComponent(date)}` : "";
+      return fetch(`/api/regions/${encodeURIComponent(regionId)}/predictions${query}`)
+        .then(async response => {
+          if (!response.ok) {
+            const body = await response.json().catch(() => ({}));
+            throw new Error(body.detail || `Request failed (${response.status})`);
+          }
+          return response.json();
+        })
+        .then(collection => {
+          const meta = collection.metadata;
+          selectedDate = meta.selected_date;
+          summarize(collection, selectedDate);
+          if (reefLayer) reefLayer.remove();
+          reefLayer = L.geoJSON(collection, {
+            style: cellStyle,
+            onEachFeature: (feature, cellLayer) => {
+              const p = feature.properties;
+              const popup = p.record_status === "missing"
+                ? `<strong>${escapeText(p.reef_cell_id)}</strong><br>No record on selected date`
+                : p.data_quality === "insufficient"
+                ? `<strong>${escapeText(p.reef_cell_id)}</strong><br>No prediction — insufficient imagery`
+                : `<strong>${escapeText(p.reef_cell_id)}</strong><br>${Math.round(p.probability * 100)}% bleaching probability`;
+              cellLayer.bindPopup(popup);
+              cellLayer.on("click", () => showDetails(p));
+            }
+          }).addTo(map);
+          document.getElementById("region-name").textContent = meta.region_id;
+          document.getElementById("run-provenance").textContent = `Run: ${meta.run_name}`;
+          document.getElementById("synthetic-note").hidden = !meta.synthetic;
+          buildTimeline(meta.available_dates);
+          const bounds = reefLayer.getBounds();
+          if (!bounds.isValid()) throw new Error("This region has no reef-cell geometry");
+          if (!firstFit) { map.fitBounds(bounds, { padding: [24, 24] }); firstFit = true; }
+          details.innerHTML = `<p class="empty">Showing ${escapeText(selectedDate)}. Select a cell to inspect its prediction, reasoning, and trend.</p>`;
+        })
+        .catch(error => {
+          details.innerHTML = `<div class="notice error">${escapeText(error.message)}</div>`;
+          if (!reefLayer) map.setView([-23.4423, 151.9148], 12);
+        });
+    }
+
+    loadDate();
+  </script>
+</body>
+</html>

@@ -93,6 +93,48 @@ when complete. A one-class usable training set fails with an explicit error;
 an all-insufficient run can publish abstentions without a model. An entirely
 skipped evaluation is `not_evaluable`, never a successful validation claim.
 
+## Region map and backend (read-only)
+
+The `ui` command above reads a single run directory per request. The region
+map adds a small SQLite serving store so the map is keyed by reef region
+instead of run-directory name, serves a per-cell trend across every date, and
+has somewhere durable for the field-confirmation write path to attach later.
+It is still read-only; there is no confirmation write path yet.
+
+Ingest a verified run into the store, then serve it:
+
+```sh
+coral-bleaching ingest --db reef.db --run-dir runs/demo-001 --region-name "Heron pilot"
+coral-bleaching serve-region --db reef.db
+```
+
+Open `http://127.0.0.1:8000`. Ingest verifies the run once at load — schema
+version, the manifest's SHA-256 over every file, grid shape, and the
+prediction schema — and aborts without touching the database if any check
+fails. The run directory stays the immutable source of truth; the database is
+a derived, rebuildable store. Re-ingesting a run for the same region publishes
+the new run and marks the prior one superseded in one transaction.
+
+The map shows one acquisition date across the reef, with an acquisition
+timeline (bar height is the share of cells flagged bleached that date). Click a
+cell for its probability, label, confidence band, data quality, signed model
+contributions, DHW value, and a probability trend across all dates (gaps in
+the trend line are dates where imagery was insufficient — "couldn't tell", not
+zero). A cell the model reads as healthy while NOAA DHW flags heat stress is
+marked and annotated, because those are two different claims; DHW is a weak
+proxy, not localized bleaching evidence. Synthetic runs stay labeled synthetic.
+
+Read endpoints (GeoJSON for geometry, JSON otherwise), region-keyed so the
+contract does not change as reefs are added:
+
+- `GET /api/regions`
+- `GET /api/regions/{region_id}/grid`
+- `GET /api/regions/{region_id}/predictions?date=YYYY-MM-DD`
+- `GET /api/regions/{region_id}/cells/{reef_cell_id}/history`
+- `GET /api/regions/{region_id}/runs`
+
+The `ui` extra (FastAPI/uvicorn) is required, same as the POC map.
+
 ## Live pilot
 
 No Earth Engine login is needed. The default adapter searches Earth Search
@@ -194,6 +236,26 @@ and unusable fraction 1.0; NOAA returned 6.89 Celsius-weeks. That confirms
 source/adapter operation and honest missing-data handling, not usable imagery
 for the study. The earlier broader catalog search found 97 scenes in
 January–April 2020; it did not establish how many contain clear reef pixels.
+
+To turn that catalog count into the number that actually gates the pipeline —
+how many cells have enough clear acquisitions to compute the rolling features —
+quantify coverage over the real grid:
+
+```sh
+python scripts/quantify_coverage.py --config examples/heron_island.json \
+  --output coverage-2020.json
+```
+
+This optional network diagnostic runs the shipped adapter
+(`EarthSearchClient.observations`) over the real pilot grid, so "usable" means
+exactly what the pipeline means (SCL masking, water retained, the configured
+unusable-pixel threshold). It writes counts of acquisition days with usable
+reef pixels, the per-day usable-cell fraction, usable days per cell, how many
+cells reach six clean acquisitions with no gap over 14 days (the rolling-
+feature bar), and the cloud-cover-fraction distribution. It makes no bleaching-
+accuracy or clear-reef-suitability claim; it measures whether the data can
+support the features at all. The pure aggregation is tested offline; the
+network entry point is not.
 
 The same earlier search found no 2016 scenes in the selected L2A collection.
 2016 remains contingent on compatible archive coverage; do not substitute

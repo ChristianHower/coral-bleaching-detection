@@ -100,12 +100,39 @@ def main(argv=None):
     ui.add_argument("--run", default="demo-001")
     ui.add_argument("--host", default="127.0.0.1")
     ui.add_argument("--port", type=int, default=8000)
+    ingest = sub.add_parser(
+        "ingest", help="Load a verified run directory into the SQLite serving store"
+    )
+    ingest.add_argument("--db", required=True, help="SQLite database path (created if absent)")
+    ingest.add_argument("--run-dir", required=True, help="Path to a published runs/<name>/ dir")
+    ingest.add_argument("--region-name", default=None, help="Human-readable region name")
+    region_ui = sub.add_parser(
+        "serve-region", help="Serve the region-keyed read API and time-aware map from SQLite"
+    )
+    region_ui.add_argument("--db", required=True)
+    region_ui.add_argument("--region", default=None, help="Default region to open")
+    region_ui.add_argument("--host", default="127.0.0.1")
+    region_ui.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
     try:
         if args.command == "ui":
             from coral_bleaching.web import serve
 
             serve(args.runs_root, args.run, args.host, args.port)
+            return
+        if args.command == "ingest":
+            from coral_bleaching.store import connect, ingest_run, init_db
+
+            connection = connect(args.db)
+            init_db(connection)
+            run_id = ingest_run(connection, args.run_dir, args.region_name)
+            connection.close()
+            print(f"Ingested {args.run_dir} as run_id {run_id}")
+            return
+        if args.command == "serve-region":
+            from coral_bleaching.web import serve_region
+
+            serve_region(args.db, args.host, args.port, args.region)
             return
         if args.command == "demo":
             output = demo(args.output)
